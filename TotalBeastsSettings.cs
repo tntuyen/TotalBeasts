@@ -1,0 +1,199 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Windows.Forms;
+using TotalBeasts.Data;
+using ExileCore.Shared.Attributes;
+using ExileCore.Shared.Helpers;
+using ExileCore.Shared.Interfaces;
+using ExileCore.Shared.Nodes;
+using ImGuiNET;
+using Newtonsoft.Json;
+using SharpDX;
+
+namespace TotalBeasts;
+
+public class TotalBeastsSettings : ISettings
+{
+    [IgnoreMenu] public List<Beast> Beasts { get; set; } = new();
+    [IgnoreMenu] public Dictionary<string, float> BeastPrices { get; set; } = new();
+    [IgnoreMenu] public DateTime LastUpdate { get; set; } = DateTime.MinValue;
+
+    public TotalBeastsSettings()
+    {
+        BeastPicker = new CustomNode
+        {
+            DrawDelegate = () =>
+            {
+                ImGui.Separator();
+                if (ImGui.BeginTable("BeastsTable", 4,
+                        ImGuiTableFlags.Resizable | ImGuiTableFlags.Reorderable | ImGuiTableFlags.Sortable |
+                        ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV |
+                        ImGuiTableFlags.NoBordersInBody | ImGuiTableFlags.ScrollY))
+                {
+                    ImGui.TableSetupColumn("Enabled", ImGuiTableColumnFlags.WidthFixed, 24);
+                    ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 48);
+                    ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 256);
+                    ImGui.TableSetupColumn("Description", ImGuiTableColumnFlags.WidthStretch);
+                    ImGui.TableSetupScrollFreeze(0, 1);
+                    ImGui.TableHeadersRow();
+
+                    var sortedBeasts = BeastsDatabase.AllBeasts;
+                    if (ImGui.TableGetSortSpecs() is { SpecsDirty: true } sortSpecs)
+                    {
+                        int sortedColumn = sortSpecs.Specs.ColumnIndex;
+                        var sortAscending = sortSpecs.Specs.SortDirection == ImGuiSortDirection.Ascending;
+
+                        sortedBeasts = sortedColumn switch
+                        {
+                            0 => sortAscending
+                                ? [.. sortedBeasts.OrderBy(b => Beasts.Any(eb => eb.Path == b.Path))]
+                                : [.. sortedBeasts.OrderByDescending(b => Beasts.Any(eb => eb.Path == b.Path))],
+                            1 => sortAscending
+                                ? [.. sortedBeasts.OrderBy(b => BeastPrices.TryGetValue(b.DisplayName, out var p) ? p : -1)]
+                                : [.. sortedBeasts.OrderByDescending(b => BeastPrices.TryGetValue(b.DisplayName, out var p) ? p : -1)],
+                            2 => sortAscending
+                                ? [.. sortedBeasts.OrderBy(b => b.DisplayName)]
+                                : [.. sortedBeasts.OrderByDescending(x => x.DisplayName)],
+                            3 => sortAscending
+                                ? [.. sortedBeasts.OrderBy(b => b.Crafts[0])]
+                                : [.. sortedBeasts.OrderByDescending(x => x.Crafts[0])],
+                            _ => sortAscending
+                                ? [.. sortedBeasts.OrderBy(b => b.DisplayName)]
+                                : [.. sortedBeasts.OrderByDescending(x => x.DisplayName)]
+                        };
+                    }
+
+                    foreach (var beast in sortedBeasts)
+                    {
+                        ImGui.TableNextRow();
+                        ImGui.TableNextColumn();
+
+                        var isChecked = Beasts.Any(eb => eb.Path == beast.Path);
+                        if (ImGui.Checkbox($"##{beast.Path}", ref isChecked))
+                        {
+                            if (isChecked)
+                            {
+                                Beasts.Add(beast);
+                            }
+                            else
+                            {
+                                Beasts.RemoveAll(eb => eb.Path == beast.Path);
+                            }
+                        }
+
+                        if (isChecked)
+                        {
+                            ImGui.PushStyleColor(ImGuiCol.Text, Color.Green.ToImguiVec4());
+                        }
+
+                        ImGui.TableNextColumn();
+                        ImGui.Text(BeastPrices.TryGetValue(beast.DisplayName, out var price) ? $"{price}c" : "0c");
+
+                        ImGui.TableNextColumn();
+                        ImGui.Text(beast.DisplayName);
+
+                        ImGui.TableNextColumn();
+                        // display all the crafts for the beast seperated by newline
+                        foreach (var craft in beast.Crafts)
+                        {
+                            ImGui.Text(craft);
+                        }
+
+                        if (isChecked)
+                        {
+                            ImGui.PopStyleColor();
+                        }
+
+                        ImGui.NextColumn();
+                    }
+
+                    ImGui.EndTable();
+                }
+            }
+        };
+
+        LastUpdated = new CustomNode
+        {
+            DrawDelegate = () =>
+            {
+                ImGui.Text("PoeNinja prices as of:");
+                ImGui.SameLine();
+                ImGui.Text(LastUpdate.ToString("HH:mm:ss"));
+            }
+        };
+    }
+
+    public ToggleNode Enable { get; set; } = new ToggleNode(false);
+
+    public ToggleNode ShowTrackedBeastsWindow { get; set; } = new ToggleNode(true);
+
+    public ToggleNode ShowBeastPricesOnLargeMap { get; set; } = new ToggleNode(true);
+    
+    public ToggleNode ShowCapturedBeastsInInventory { get; set; } = new ToggleNode(true);
+    
+    public ToggleNode ShowCapturedBeastsInStash { get; set; } = new ToggleNode(true);
+    
+    public ToggleNode ShowBestiaryPanel { get; set; } = new ToggleNode(true);
+
+    public ToggleNode ShowAllPricesInBestiaryPanel { get; set; } = new ToggleNode(true);
+
+    public ToggleNode ShowBestiaryDebug { get; set; } = new ToggleNode(false);
+
+    public BeastAutomationSettings Automation { get; set; } = new();
+
+    public ToggleNode AutoRefreshPrices { get; set; } = new ToggleNode(true);
+
+    public RangeNode<int> PriceRefreshMinutes { get; set; } = new(15, 1, 60);
+
+    public ButtonNode FetchBeastPrices { get; set; } = new ButtonNode();
+
+    [JsonIgnore] public CustomNode LastUpdated { get; set; }
+
+    [JsonIgnore] public CustomNode BeastPicker { get; set; }
+}
+
+[Submenu(CollapsedByDefault = false)]
+public class BeastAutomationSettings
+{
+    /// <summary>Toggle to start/stop the automation loop.</summary>
+    public ToggleNode Enable { get; set; } = new ToggleNode(false);
+
+    /// <summary>Hotkey to toggle automation on/off without opening settings.</summary>
+    public HotkeyNode Hotkey { get; set; } = new HotkeyNode(Keys.None);
+
+    /// <summary>
+    /// Beasts worth this value or more are itemized; all others are released.
+    /// Yellow beasts not tracked by poe.ninja are treated as 0c and always released
+    /// unless ItemizeYellowBeasts is ON.
+    /// </summary>
+    public RangeNode<int> ItemizeAboveChaos { get; set; } = new RangeNode<int>(4, 0, 500);
+
+    /// <summary>When ON, itemize all yellow beasts regardless of their price.</summary>
+    public ToggleNode ItemizeYellowBeasts { get; set; } = new ToggleNode(false);
+
+    /// <summary>When ON, stop the automation if inventory is full. Recommended: ON.</summary>
+    public ToggleNode CheckInventoryBeforeItemize { get; set; } = new ToggleNode(true);
+
+    /// <summary>
+    /// When ON, mouse input is handled by the InputHumanizer plugin (curved movement,
+    /// Gaussian delays). When OFF, uses simple direct input with a configurable pre-click delay.
+    /// </summary>
+    [Menu("Use Input Humanizer", "Delegates mouse movement and click timing to the InputHumanizer plugin via PluginBridge. Disable to use simple direct input instead.")]
+    public ToggleNode UseInputHumanizer { get; set; } = new ToggleNode(false);
+
+    /// <summary>
+    /// Delay (ms) before each click. Only used when Input Humanizer is OFF.
+    /// </summary>
+    [ConditionalDisplay(nameof(UseInputHumanizer), false)]
+    [Menu("Pre-Click Delay (ms)", "Delay after moving cursor to button before clicking. Only used in simple input mode.")]
+    public RangeNode<int> PreClickDelayMs { get; set; } = new RangeNode<int>(30, 5, 300);
+
+    /// <summary>
+    /// Fallback delay (ms) between actions if the server does not confirm processing
+    /// within the WTC timeout. When the server confirms quickly, the next action
+    /// starts immediately with no inter-action delay.
+    /// </summary>
+    [Menu("Fallback Delay (ms)", "Only applies when the server does not confirm the action in time. Normally actions proceed as soon as the panel updates.")]
+    public RangeNode<int> FallbackDelayMs { get; set; } = new RangeNode<int>(300, 50, 3000);
+}
