@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace TotalBeasts.Data;
 
@@ -567,7 +568,69 @@ public static class BeastsDatabase
                 "Create an Imprint: Of a Magic Item",
                 "Croaker Talisman"
             ]
+        },
+        new Beast
+        {
+            DisplayName = "Vicious Hound",
+            Path = "Metadata/Monsters/LeagueBestiary/PurgeHoundBestiary",
+            Crafts = ["Vicious Hound"]
         }
     };
 
+    private static readonly Dictionary<string, Beast> MetadataCache = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Resolves an entity's metadata to a database beast. Spawned beasts can now
+    /// carry a numeric variant suffix ("..._2", "...Bestiary3"), so an exact
+    /// match misses them. The longest matching pattern wins, so
+    /// HellionBestiary2 (Frost) is never claimed by HellionBestiary (Flame).
+    /// </summary>
+    public static Beast FindByMetadata(string metadata)
+    {
+        if (string.IsNullOrEmpty(metadata)) return null;
+        lock (MetadataCache)
+        {
+            if (MetadataCache.TryGetValue(metadata, out var cached)) return cached;
+
+            Beast best = null;
+            foreach (var beast in AllBeasts)
+            {
+                if (!MetadataMatchesPattern(metadata, beast.Path)) continue;
+                if (best == null || beast.Path.Length > best.Path.Length) best = beast;
+            }
+
+            MetadataCache[metadata] = best;
+            return best;
+        }
+    }
+
+    /// <summary>
+    /// Pattern = base path, optionally ending in '_'. Matches the base path
+    /// itself, base + "_" + digits, or base + digits (only when the base does
+    /// not already end in a digit, so SnakeBestiary1 never matches SnakeBestiary12).
+    /// </summary>
+    public static bool MetadataMatchesPattern(string metadata, string pattern)
+    {
+        if (string.IsNullOrEmpty(metadata) || string.IsNullOrEmpty(pattern)) return false;
+
+        var basePath = pattern.EndsWith('_') ? pattern[..^1] : pattern;
+        if (basePath.Length == 0) return false;
+        if (!metadata.StartsWith(basePath, StringComparison.Ordinal)) return false;
+
+        var suffix = metadata.AsSpan(basePath.Length);
+        if (suffix.IsEmpty) return true;
+
+        var hasUnderscore = suffix[0] == '_';
+        var i = hasUnderscore ? 1 : 0;
+
+        if (!hasUnderscore && char.IsDigit(basePath[^1])) return false;
+        if (i == suffix.Length) return hasUnderscore;
+
+        for (; i < suffix.Length; i++)
+        {
+            if (!char.IsDigit(suffix[i])) return false;
+        }
+
+        return true;
+    }
 }

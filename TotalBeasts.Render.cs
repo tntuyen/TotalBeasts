@@ -10,7 +10,7 @@ using ExileCore.PoEMemory.Elements.InventoryElements;
 using ExileCore.Shared;
 using ExileCore.Shared.Enums;
 using ExileCore.Shared.Helpers;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using SharpDX;
 using Vector2 = System.Numerics.Vector2;
 using Vector3 = System.Numerics.Vector3;
@@ -587,13 +587,14 @@ public partial class TotalBeasts
         if (ImGui.BeginTable("Beasts Table", 2,
                 ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV))
         {
-            ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 48);
+            ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 48f);
             ImGui.TableSetupColumn("Beast");
 
             foreach (var trackedBeast in _trackedBeasts)
             {
                 var entity = trackedBeast.Value;
-                if (!BeastByPath.TryGetValue(entity.Metadata ?? "", out var beast)) continue;
+                var beast = FindBeast(entity);
+                if (beast == null) continue;
                 if (!_selectedBeastPathsSet.Contains(beast.Path)) continue;
 
                 ImGui.TableNextRow();
@@ -711,7 +712,8 @@ public partial class TotalBeasts
             var positioned = entity.GetComponent<Positioned>();
             if (positioned == null) continue;
 
-            if (!BeastByPath.TryGetValue(entity.Metadata ?? "", out var beast)) continue;
+            var beast = FindBeast(entity);
+            if (beast == null) continue;
 
             var isSelected = _selectedBeastPathsSet.Contains(beast.Path);
             var worldPos = terrainData.ToWorldWithTerrainHeight(positioned.GridPosition);

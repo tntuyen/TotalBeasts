@@ -38,14 +38,24 @@ public partial class TotalBeasts : BaseSettingsPlugin<TotalBeastsSettings>
         StringComparer.Ordinal
     );
 
-    // O(1) path → Beast lookup used in Render methods instead of O(n) FirstOrDefault/All.
-    // Grouped by path so a duplicate database entry degrades to first-wins instead of
-    // a TypeInitializationException that kills the whole plugin.
-    internal static readonly Dictionary<string, Beast> BeastByPath =
-        BeastsDatabase.AllBeasts
-            .Where(b => !string.IsNullOrEmpty(b.Path))
-            .GroupBy(b => b.Path, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+    // Metadata -> Beast lookup. Spawned beasts can carry a numeric variant
+    // suffix this league, so lookups go through BeastsDatabase.FindByMetadata
+    // (pattern match, cached per metadata string) instead of an exact-key dictionary.
+    internal static Beast FindBeast(Entity entity) => BeastsDatabase.FindByMetadata(entity?.Metadata);
+
+    // A capturable monster counts as red when it resolves to a database beast.
+    // The old StartsWith check is kept as a fallback so an unexpected suffix
+    // never makes a red beast show up as a yellow one.
+    private static bool IsKnownBeastMetadata(string metadata)
+    {
+        if (BeastsDatabase.FindByMetadata(metadata) != null) return true;
+        if (string.IsNullOrEmpty(metadata)) return false;
+        foreach (var knownPath in KnownBeastPaths)
+        {
+            if (metadata.StartsWith(knownPath, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
 
     public override void OnLoad()
     {
@@ -212,18 +222,14 @@ public partial class TotalBeasts : BaseSettingsPlugin<TotalBeastsSettings>
             if (!stats.StatDictionary.TryGetValue(GameStat.IsCapturableMonster, out var capVal) || capVal <= 0)
                 continue;
 
-            var metadata = entity.Metadata ?? "";
-            var isKnown = false;
-            foreach (var knownPath in KnownBeastPaths)
+            if (IsKnownBeastMetadata(entity.Metadata))
             {
-                if (metadata.StartsWith(knownPath, StringComparison.Ordinal))
-                {
-                    isKnown = true;
-                    break;
-                }
+                // Red beast whose stats were not loaded yet at EntityAdded --
+                // pick it up here instead of losing it for the whole map.
+                if (entity.Rarity == MonsterRarity.Rare && FindBeast(entity) != null)
+                    _trackedBeasts.TryAdd(entity.Id, entity);
             }
-
-            if (!isKnown)
+            else
             {
                 _trackedYellowBeasts[entity.Id] = entity;
             }
@@ -278,21 +284,16 @@ public partial class TotalBeasts : BaseSettingsPlugin<TotalBeastsSettings>
             if (!stats.StatDictionary.TryGetValue(GameStat.IsCapturableMonster, out var capVal) || capVal <= 0)
                 continue;
 
-            var metadata = entity.Metadata ?? "";
-            var isRedBeast = false;
-            foreach (var knownPath in KnownBeastPaths)
+            var redBeast = FindBeast(entity);
+            if (redBeast != null)
             {
-                if (metadata.StartsWith(knownPath, StringComparison.Ordinal))
-                {
-                    if (selectedPaths.Contains(knownPath))
-                        yield return entity;
-                    isRedBeast = true;
-                    break;
-                }
+                if (selectedPaths.Contains(redBeast.Path))
+                    yield return entity;
             }
-
-            if (!isRedBeast)
+            else if (!IsKnownBeastMetadata(entity.Metadata))
+            {
                 yield return entity;
+            }
         }
     }
 
@@ -325,10 +326,8 @@ public partial class TotalBeasts : BaseSettingsPlugin<TotalBeastsSettings>
     public override void EntityAdded(Entity entity)
     {
         if (entity.Rarity != MonsterRarity.Rare) return;
-        foreach (var _ in BeastsDatabase.AllBeasts.Where(beast => entity.Metadata == beast.Path))
-        {
-            _trackedBeasts.Add(entity.Id, entity);
-        }
+        if (FindBeast(entity) == null) return;
+        _trackedBeasts.TryAdd(entity.Id, entity);
     }
 
     public override void EntityRemoved(Entity entity)

@@ -11,14 +11,23 @@ public static class PoeNinja
     private const string PoeNinjaUrlTemplate =
         "https://poe.ninja/poe1/api/economy/stash/current/item/overview?league={0}&type=Beast";
 
+    private class PoeNinjaItem
+    {
+        [JsonProperty("id")] public string Id;
+        [JsonProperty("name")] public string Name;
+    }
+
     private class PoeNinjaLine
     {
+        [JsonProperty("id")] public string Id;
         [JsonProperty("name")] public string Name;
+        [JsonProperty("primaryValue")] public float? PrimaryValue;
         [JsonProperty("chaosValue")] public float? ChaosValue;
     }
 
     private class PoeNinjaResponse
     {
+        [JsonProperty("items")] public List<PoeNinjaItem> Items;
         [JsonProperty("lines")] public List<PoeNinjaLine> Lines;
     }
 
@@ -36,10 +45,29 @@ public static class PoeNinja
         var prices = new Dictionary<string, float>();
         if (poeNinjaResponse?.Lines == null) return prices;
 
+        // Newer poe.ninja responses can carry only an "id" per line with the
+        // names in a separate "items" list, and the value in "primaryValue".
+        var namesById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (poeNinjaResponse.Items != null)
+        {
+            foreach (var item in poeNinjaResponse.Items)
+            {
+                if (!string.IsNullOrEmpty(item?.Id) && !string.IsNullOrEmpty(item.Name))
+                    namesById[item.Id] = item.Name;
+            }
+        }
+
         foreach (var line in poeNinjaResponse.Lines)
         {
-            if (string.IsNullOrEmpty(line?.Name) || line.ChaosValue == null) continue;
-            prices[line.Name] = line.ChaosValue.Value;
+            if (line == null) continue;
+
+            var name = !string.IsNullOrEmpty(line.Id) && namesById.TryGetValue(line.Id, out var byId)
+                ? byId
+                : line.Name;
+            var value = line.PrimaryValue > 0 ? line.PrimaryValue : line.ChaosValue;
+            if (string.IsNullOrEmpty(name) || value == null) continue;
+
+            prices[name] = value.Value;
         }
 
         return prices;

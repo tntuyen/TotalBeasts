@@ -7,7 +7,7 @@ using ExileCore.Shared.Attributes;
 using ExileCore.Shared.Helpers;
 using ExileCore.Shared.Interfaces;
 using ExileCore.Shared.Nodes;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using Newtonsoft.Json;
 using SharpDX;
 
@@ -31,15 +31,16 @@ public class TotalBeastsSettings : ISettings
                         ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersOuter | ImGuiTableFlags.BordersV |
                         ImGuiTableFlags.NoBordersInBody | ImGuiTableFlags.ScrollY))
                 {
-                    ImGui.TableSetupColumn("Enabled", ImGuiTableColumnFlags.WidthFixed, 24);
-                    ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 48);
-                    ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 256);
+                    ImGui.TableSetupColumn("Enabled", ImGuiTableColumnFlags.WidthFixed, 24f);
+                    ImGui.TableSetupColumn("Price", ImGuiTableColumnFlags.WidthFixed, 48f);
+                    ImGui.TableSetupColumn("Name", ImGuiTableColumnFlags.WidthFixed, 256f);
                     ImGui.TableSetupColumn("Description", ImGuiTableColumnFlags.WidthStretch);
                     ImGui.TableSetupScrollFreeze(0, 1);
                     ImGui.TableHeadersRow();
 
                     var sortedBeasts = BeastsDatabase.AllBeasts;
-                    if (ImGui.TableGetSortSpecs() is { SpecsDirty: true } sortSpecs)
+                    var sortSpecs = ImGui.TableGetSortSpecs();
+                    if (!sortSpecs.IsNull && sortSpecs.SpecsDirty && !sortSpecs.Specs.IsNull)
                     {
                         int sortedColumn = sortSpecs.Specs.ColumnIndex;
                         var sortAscending = sortSpecs.Specs.SortDirection == ImGuiSortDirection.Ascending;
@@ -56,8 +57,8 @@ public class TotalBeastsSettings : ISettings
                                 ? [.. sortedBeasts.OrderBy(b => b.DisplayName)]
                                 : [.. sortedBeasts.OrderByDescending(x => x.DisplayName)],
                             3 => sortAscending
-                                ? [.. sortedBeasts.OrderBy(b => b.Crafts[0])]
-                                : [.. sortedBeasts.OrderByDescending(x => x.Crafts[0])],
+                                ? [.. sortedBeasts.OrderBy(b => b.Crafts?.FirstOrDefault())]
+                                : [.. sortedBeasts.OrderByDescending(x => x.Crafts?.FirstOrDefault())],
                             _ => sortAscending
                                 ? [.. sortedBeasts.OrderBy(b => b.DisplayName)]
                                 : [.. sortedBeasts.OrderByDescending(x => x.DisplayName)]
